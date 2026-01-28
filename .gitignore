@@ -1,0 +1,36 @@
+# Environment Variables (contains secrets!)
+.env
+
+# Dependencies (installed by package managers)
+node_modules/
+vendor/
+__pycache__/
+
+# Build outputs (can be regenerated)
+build/
+dist/
+*.egg-info/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Logs
+*.log
+logs/
+
+# Database
+*.sqlite
+*.db
+
+# Cache
+.cache/
