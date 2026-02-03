@@ -54,6 +54,7 @@ app.get('/api/status', async (req, res) => {
             response: response.data
           };
         } catch (error) {
+          console.log("ERRor", error)
           return {
             name: service.name,
             status: 'error',

@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-microservices_db}
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Authentication Service (Laravel)
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service-container
+    ports:
+      - "${AUTH_SERVICE_PORT:-3002}:80"
+    environment:
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=${POSTGRES_DB:-microservices_db}
+      - DB_USERNAME=${POSTGRES_USER:-app_user}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-app_password}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Analytics Service (Python/FastAPI)
+  analytics-service:
+    build: ./analytics-service
+    container_name: analytics-service-container
+    ports:
+      - "${ANALYTICS_SERVICE_PORT:-3003}:3003"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:-app_password}@postgres:5432/${POSTGRES_DB:-microservices_db}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # API Gateway (Node.js)
+  gateway:
+    build: ./gateway
+    container_name: gateway-container
+    ports:
+      - "${GATEWAY_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - AUTH_SERVICE_URL=http://auth-service:80
+      - ANALYTICS_SERVICE_URL=http://analytics-service:3003
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
+    depends_on:
+      - auth-service
+      - analytics-service
+      - redis
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # User Dashboard (React)
+  user-dashboard:
+    build: ./user-dashboard
+    container_name: user-dashboard-container
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:${GATEWAY_PORT:-3001}
+    depends_on:
+      - gateway
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  microservices-network:
+    driver: bridge
