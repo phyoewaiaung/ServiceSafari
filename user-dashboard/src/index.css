@@ -1,108 +1,55 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* Custom base styles */
 @layer base {
   body {
-    @apply bg-bg-primary text-text-primary antialiased;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    line-height: 1.5;
-    overflow-x: hidden;
-  }
-
-  #root {
-    @apply min-h-screen;
+    @apply bg-slate-950 text-slate-100 antialiased;
+    font-family: Inter, system-ui, sans-serif;
+    overflow: hidden;
   }
 }
 
-/* Custom component styles */
-@layer components {
-  .glass-card {
-    @apply bg-white/5 backdrop-blur-glass border border-white/8 rounded-xl shadow-glass;
+/* allow scroll only on small screens */
+@media (max-width: 1279px) {
+  body {
+    overflow-y: auto;
   }
+}
 
-  .glass-card-hover {
-    @apply glass-card hover:bg-white/8 hover:border-accent-primary/30 hover:shadow-xl hover:-translate-y-1 transition-all duration-300;
+/* custom animations */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
-  .status-dot {
-    @apply w-2 h-2 rounded-full;
-  }
+.animate-slideDown {
+  animation: slideDown 0.3s ease-out;
+}
 
-  .status-dot.running {
-    @apply bg-status-running shadow-[0_0_8px_rgba(16, 185, 129, 0.8)] animate-pulse-slow;
+/* status indicator animations */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
   }
+  50% {
+    opacity: 0.5;
+  }
+}
 
-  .status-dot.pending {
-    @apply bg-status-pending shadow-[0_0_8px_rgba(245, 158, 11, 0.8)];
+@keyframes ping {
+  75%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
   }
+}
 
-  .status-dot.error {
-    @apply bg-status-error shadow-[0_0_8px_rgba(239, 68, 68, 0.8)];
-  }
-
-  .status-pill {
-    @apply px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider whitespace-nowrap;
-  }
-
-  .status-pill.running {
-    @apply bg-status-running/15 text-status-running border border-status-running/30;
-  }
-
-  .status-pill.pending {
-    @apply bg-status-pending/15 text-status-pending border border-status-pending/30;
-  }
-
-  .status-pill.error {
-    @apply bg-status-error/15 text-status-error border border-status-error/30;
-  }
-
-  .grain-overlay {
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
-  }
-
-  .circular-chart {
-    @apply w-full h-full;
-  }
-
-  .circle-bg {
-    fill: none;
-    stroke: rgba(255, 255, 255, 0.1);
-    stroke-width: 2.8;
-  }
-
-  .circle {
-    fill: none;
-    stroke-width: 2.8;
-    stroke-linecap: round;
-    animation: progress 1s ease-out forwards;
-    transform: rotate(-90deg);
-    transform-origin: 50% 50%;
-  }
-
-  .circle.healthy {
-    stroke: #10b981;
-  }
-
-  .circle.warning {
-    stroke: #f59e0b;
-  }
-
-  .circle.critical {
-    stroke: #ef4444;
-  }
-
-  @keyframes progress {
-    0% {
-      stroke-dasharray: 0 100;
-    }
-  }
-
-  .percentage {
-    fill: #f9fafb;
-    font-size: 0.5rem;
-    font-weight: 700;
-    text-anchor: middle;
-  }
+.animate-ping {
+  animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
 }

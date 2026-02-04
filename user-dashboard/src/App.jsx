@@ -1,302 +1,455 @@
-import { useState, useEffect } from 'react'
-import axios from 'axios'
-import './index.css'
+import { useState, useEffect } from "react";
+import axios from "axios";
+import "./index.css";
 
-function App() {
-  const [message, setMessage] = useState('Initializing User Dashboard...')
+export default function App() {
+  const [message, setMessage] = useState("Initializing User Dashboard...");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+
   const [services, setServices] = useState({
-    frontend: { status: 'running', port: 3000, name: 'User Dashboard', tech: 'React', icon: '⚛️', category: 'frontend' },
-    gateway: { status: 'pending', port: 3001, name: 'API Gateway', tech: 'Node.js', icon: '🚪', category: 'backend' },
-    auth: { status: 'pending', port: 3002, name: 'Auth Service', tech: 'Laravel', icon: '🔐', category: 'backend' },
-    analytics: { status: 'pending', port: 3003, name: 'Analytics', tech: 'Python', icon: '📊', category: 'backend' },
-    database: { status: 'pending', port: 5432, name: 'Database', tech: 'PostgreSQL', icon: '🗄️', category: 'data' },
-    cache: { status: 'pending', port: 6379, name: 'Cache', tech: 'Redis', icon: '⚡', category: 'data' }
-  })
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [lastUpdate, setLastUpdate] = useState(new Date())
+    frontend: {
+      status: "running",
+      port: 3000,
+      name: "User Dashboard",
+      tech: "React",
+      icon: "⚛️",
+      category: "frontend",
+    },
+    gateway: {
+      status: "pending",
+      port: 3001,
+      name: "API Gateway",
+      tech: "Node.js",
+      icon: "🚪",
+      category: "backend",
+    },
+    auth: {
+      status: "pending",
+      port: 3002,
+      name: "Auth Service",
+      tech: "Laravel",
+      icon: "🔐",
+      category: "backend",
+    },
+    analytics: {
+      status: "pending",
+      port: 3003,
+      name: "Analytics",
+      tech: "Python",
+      icon: "📊",
+      category: "backend",
+    },
+  });
 
-  const fetchServiceStatus = async () => {
+  const fetchServiceStatus = async (isManualRetry = false) => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      if (isManualRetry) {
+        setIsRetrying(true);
 
-      const response = await axios.get('http://localhost:3001/api/status')
-      const gatewayData = response.data
+        // Update only services that are actually checked via API to show retrying status
+        setServices((prev) => ({
+          ...prev,
+          gateway: { ...prev.gateway, status: "retrying", error: null },
+          auth: { ...prev.auth, status: "retrying", error: null },
+          analytics: { ...prev.analytics, status: "retrying", error: null },
+        }));
 
-      setServices(prev => ({
+        setMessage("Retrying connection to Docker containers...");
+      }
+      setError(null);
+
+      // Use localhost when accessing from browser, gateway when running inside container
+      const apiUrl =
+        window.location.hostname === "localhost"
+          ? "http://localhost:3001"
+          : "http://gateway:3001";
+
+      const response = await axios.get(`${apiUrl}/api/status`, {
+        timeout: 5000,
+      });
+      const gatewayData = response.data;
+
+      setIsRetrying(false);
+
+      // Update services based on actual API response
+      const authService = gatewayData.services.find((s) => s.key === "auth");
+      const analyticsService = gatewayData.services.find(
+        (s) => s.key === "analytics",
+      );
+
+      setServices((prev) => ({
         ...prev,
         gateway: {
           ...prev.gateway,
-          status: 'running'
+          status: "running",
+          error: null,
         },
         auth: {
           ...prev.auth,
-          status: gatewayData.services.find(s => s.key === 'auth')?.status || 'pending'
+          status: authService?.status || "error",
+          error: authService?.error,
         },
         analytics: {
           ...prev.analytics,
-          status: gatewayData.services.find(s => s.key === 'analytics')?.status || 'pending'
-        }
-      }))
+          status: analyticsService?.status || "error",
+          error: analyticsService?.error,
+        },
+      }));
 
-      setMessage('All systems operational')
-      setLastUpdate(new Date())
+      // Calculate running count from updated services
+      const updatedServices = {
+        gateway: { status: "running" },
+        auth: { status: authService?.status || "error" },
+        analytics: { status: analyticsService?.status || "error" },
+        frontend: { status: "running" },
+      };
+
+      const runningCount = Object.values(updatedServices).filter(
+        (s) => s.status === "running",
+      ).length;
+      const totalCount = Object.values(updatedServices).length;
+
+      if (runningCount === totalCount) {
+        setMessage("All Docker containers running successfully");
+      } else {
+        setMessage(`${runningCount}/${totalCount} containers running`);
+      }
+
+      setLastUpdate(new Date());
     } catch (err) {
-      console.error('Failed to connect to gateway:', err)
-      setError('Unable to connect to API Gateway')
-      setMessage('Connection failed')
+      console.error("Failed to connect to gateway:", err);
+      setIsRetrying(false);
+
+      // Reset backend services to error state with specific Docker error messages
+      setServices((prev) => ({
+        ...prev,
+        gateway: {
+          ...prev.gateway,
+          status: "error",
+          error: "Gateway container not responding",
+        },
+        auth: {
+          ...prev.auth,
+          status: "error",
+          error: "Auth service container may not be running",
+        },
+        analytics: {
+          ...prev.analytics,
+          status: "error",
+          error: "Analytics service container may not be running",
+        },
+      }));
+
+      setError("Docker services unavailable");
+      setMessage("Some Docker containers are not running");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    fetchServiceStatus()
-    const interval = setInterval(fetchServiceStatus, 5000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'running': return 'status-running'
-      case 'pending': return 'status-pending'
-      case 'error': return 'status-error'
-      default: return 'status-unknown'
-    }
-  }
+    fetchServiceStatus();
+  }, []);
 
   const handleRefresh = () => {
-    fetchServiceStatus()
-  }
+    if (loading) return;
+    fetchServiceStatus(true);
+  };
 
-  const runningCount = Object.values(services).filter(s => s.status === 'running').length
-  const totalCount = Object.values(services).length
-  const healthPercentage = Math.round((runningCount / totalCount) * 100)
+  const handleContainerControl = async (service, action) => {
+    try {
+      setLoading(true);
+      setMessage(
+        `${action === "start" ? "Starting" : "Stopping"} ${service}...`,
+      );
+
+      const response = await axios.post(
+        `${window.location.hostname === "localhost" ? "http://localhost:3001" : "http://gateway:3001"}/api/containers/${service}/${action}`,
+      );
+
+      setMessage(response.data.message);
+
+      // Refresh status after a short delay to allow container to start/stop
+      setTimeout(() => {
+        fetchServiceStatus();
+      }, 2000);
+    } catch (error) {
+      console.error(`Failed to ${action} ${service}:`, error);
+      setError(
+        `Failed to ${action} ${service}: ${error.response?.data?.error || error.message}`,
+      );
+      setMessage(`Failed to ${action} ${service}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const allServices = Object.values(services);
+  const runningCount = allServices.filter((s) => s.status === "running").length;
+  const totalCount = allServices.length;
+  const health = Math.round((runningCount / totalCount) * 100);
 
   return (
-    <div className="min-h-screen bg-animated-bg relative overflow-x-hidden">
-      <div className="grain-overlay fixed inset-0 pointer-events-none z-10"></div>
-
-      <div className="max-w-7xl mx-auto px-6 py-6 relative z-20 min-h-screen">
-        {/* Compact Header */}
-        <header className="glass-card p-6 mb-6 flex justify-between items-center gap-6 transition-all duration-300 hover:shadow-lg hover:border-accent-primary/20">
-          <div className="flex items-center gap-6 flex-1">
-            <div className="w-12 h-12 bg-gradient-to-br from-accent-primary to-accent-secondary rounded-lg flex items-center justify-center shadow-lg flex-shrink-0">
-              <span className="text-2xl filter drop-shadow-md">🐳</span>
+    <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden">
+      <div className="h-full max-w-[1800px] mx-auto p-4 flex flex-col gap-4">
+        {/* HEADER */}
+        <header className="flex items-center justify-between backdrop-blur-xl bg-slate-800/50 border border-slate-700/60 rounded-2xl p-4 shadow-xl">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-xl flex items-center justify-center text-3xl">
+              🐳
             </div>
-            <div className="flex flex-col gap-1">
-              <h1 className="text-xl font-bold text-text-primary tracking-tight">Microservices Dashboard</h1>
-              <div className="flex items-center gap-2 text-sm text-text-tertiary">
-                <span className="font-medium">{message}</span>
-                <span className="text-text-muted">•</span>
-                <span className="font-mono">{lastUpdate.toLocaleTimeString()}</span>
-              </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">ServiceSafari</h1>
+              <p className="text-sm text-slate-400">{message}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-4 px-4 py-2 bg-white/2 rounded-lg border border-white/5">
-              <div className="w-10 h-10">
-                <svg viewBox="0 0 36 36" className="circular-chart">
-                  <path
-                    className="circle-bg"
-                    d="M18 2.0845
-                      a 15.9155 15.9155 0 0 1 0 31.831
-                      a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                  <path
-                    className={`circle ${healthPercentage === 100 ? 'healthy' : healthPercentage > 50 ? 'warning' : 'critical'}`}
-                    strokeDasharray={`${healthPercentage}, 100`}
-                    d="M18 2.0845
-                      a 15.9155 15.9155 0 0 1 0 31.831
-                      a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                  <text x="18" y="20.35" className="percentage">{healthPercentage}%</text>
-                </svg>
-              </div>
-              <div className="flex flex-col gap-0.5">
-                <div className="text-xs text-text-tertiary font-semibold uppercase tracking-wider">System Health</div>
-                <div className="text-lg font-bold text-text-primary font-mono">{runningCount}/{totalCount}</div>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <div className="text-xs text-slate-400 uppercase">Health</div>
+              <div className="text-xl font-bold text-emerald-400">
+                {health}%
               </div>
             </div>
-
             <button
               onClick={handleRefresh}
               disabled={loading}
-              className="w-10 h-10 bg-gradient-to-br from-accent-primary to-accent-secondary text-white rounded-lg flex items-center justify-center cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="group relative w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600 to-violet-500 hover:from-violet-500 hover:to-violet-400 flex items-center justify-center text-white transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+              title="Refresh services"
             >
-              <span className={`text-lg ${loading ? 'animate-spin-slow' : ''}`}>↻</span>
+              <div className="absolute inset-0 bg-gradient-to-br from-white/0 to-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <svg
+                className={`w-5 h-5 relative z-10 transition-transform duration-500 ${loading ? "animate-spin" : "group-hover:rotate-180"}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
             </button>
           </div>
         </header>
 
-        {/* Error Alert */}
-        {error && (
-          <div className="bg-accent-error/10 border border-accent-error/30 rounded-lg p-4 mb-6 flex justify-between items-center gap-6 animate-slideDown">
-            <div className="flex items-center gap-4">
-              <span className="text-xl">⚠️</span>
-              <span className="text-sm font-medium text-text-secondary">{error}</span>
-            </div>
-            <button
-              onClick={handleRefresh}
-              className="px-4 py-2 bg-accent-error/20 border border-accent-error/40 text-white rounded-lg text-sm font-semibold cursor-pointer transition-all duration-200 hover:bg-accent-error/30 whitespace-nowrap"
-            >
-              Retry
-            </button>
-          </div>
-        )}
+        {/* MAIN */}
+        <main className="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-4 xl:overflow-hidden">
+          {/* LEFT COLUMN */}
+          <section className="xl:col-span-8 flex flex-col gap-4">
+            {/* SERVICES OVERVIEW */}
+            <div className="flex-1 backdrop-blur-xl bg-slate-800/40 border border-slate-700/60 rounded-2xl p-5 shadow-xl">
+              <h2 className="text-lg font-bold uppercase tracking-wider text-slate-300 mb-4">
+                Services Overview
+              </h2>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Services Column */}
-          <div className="glass-card p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-bold text-text-primary tracking-tight">Services</h2>
-              <div className="flex gap-2">
-                <span className="status-dot running"></span>
-                <span className="status-dot pending"></span>
-                <span className="status-dot error"></span>
-              </div>
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {allServices.map((s) => (
+                  <div
+                    key={s.name}
+                    className="relative bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 hover:border-violet-500/40 transition"
+                  >
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${
+                        s.status === "running"
+                          ? "bg-emerald-500"
+                          : s.status === "error"
+                            ? "bg-red-500"
+                            : s.status === "retrying"
+                              ? "bg-blue-500 animate-pulse"
+                              : "bg-amber-500"
+                      }`}
+                    />
+                    <div className="flex items-center gap-3">
+                      <div className="text-3xl">{s.icon}</div>
+                      <div className="flex-1">
+                        <div className="font-bold text-white">{s.name}</div>
+                        <div className="text-sm text-slate-400">{s.tech}</div>
+                        <div className="text-xs text-slate-500 font-mono">
+                          :{s.port}
+                        </div>
+                        {s.error && (
+                          <div className="text-xs text-red-400 mt-1 font-medium">
+                            ⚠️ {s.error}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                            s.status === "running"
+                              ? "bg-emerald-500/20 text-emerald-400"
+                              : s.status === "error"
+                                ? "bg-red-500/20 text-red-400"
+                                : s.status === "retrying"
+                                  ? "bg-blue-500/20 text-blue-400 animate-pulse"
+                                  : "bg-amber-500/20 text-amber-400"
+                          }`}
+                        >
+                          {s.status}
+                        </span>
 
-            <div className="flex flex-col gap-4">
-              {Object.entries(services).map(([key, service]) => (
-                <div
-                  key={key}
-                  className="bg-white/2 border border-white/5 rounded-lg p-4 flex justify-between items-center gap-4 transition-all duration-300 hover:bg-white/8 hover:border-accent-primary/30 hover:translate-x-1 relative overflow-hidden group"
-                >
-                  <div className={`absolute left-0 top-0 bottom-0 w-1 transition-all duration-300 group-hover:shadow-lg ${service.status === 'running' ? 'bg-status-running shadow-[0_0_10px_rgba(16,185,129,0.6)]' :
-                    service.status === 'pending' ? 'bg-status-pending shadow-[0_0_10px_rgba(245,158,11,0.6)]' :
-                      service.status === 'error' ? 'bg-status-error shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'bg-status-unknown'
-                    }`}></div>
-
-                  <div className="flex items-center gap-4 flex-1">
-                    <div className="relative w-11 h-11 bg-white/5 rounded-lg flex items-center justify-center text-xl flex-shrink-0 border border-white/8">
-                      {service.icon}
-                      <div className={`status-dot ${service.status} absolute -top-1 -right-1 w-3 h-3 border-2 border-bg-secondary`}></div>
+                        {/* Container Control Buttons */}
+                        {s.category === "backend" && (
+                          <div className="flex gap-1 mt-1">
+                            {s.status === "running" ? (
+                              <button
+                                onClick={() =>
+                                  handleContainerControl(
+                                    s.name
+                                      .toLowerCase()
+                                      .replace(" ", "-")
+                                      .replace("service", "-service"),
+                                    "stop",
+                                  )
+                                }
+                                disabled={loading}
+                                className="text-xs px-2 py-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Stop container"
+                              >
+                                ⏹️ Stop
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  handleContainerControl(
+                                    s.name
+                                      .toLowerCase()
+                                      .replace(" ", "-")
+                                      .replace("service", "-service"),
+                                    "start",
+                                  )
+                                }
+                                disabled={loading}
+                                className="text-xs px-2 py-1 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Start container"
+                              >
+                                ▶️ Start
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-col gap-0.5">
-                      <div className="text-sm font-semibold text-text-primary">{service.name}</div>
-                      <div className="text-xs text-text-tertiary font-medium">{service.tech}</div>
-                    </div>
                   </div>
-
-                  <div className="flex items-center gap-4">
-                    <div className="text-xs font-semibold text-text-tertiary px-2.5 py-1 bg-white/5 rounded-lg border border-white/8 font-mono">
-                      :{service.port}
-                    </div>
-                    <div className={`status-pill ${getStatusColor(service.status)}`}>
-                      {service.status}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-3 gap-2 mt-6 pt-6 border-t border-white/5">
-              <div className="bg-white/2 border border-white/5 rounded-lg p-3 flex items-center gap-2 transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5">
-                <div className="text-lg w-9 h-9 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0">🌐</div>
-                <div className="flex flex-col gap-0.5">
-                  <div className="text-xs font-bold text-text-primary">Development</div>
-                  <div className="text-xs text-text-tertiary font-semibold uppercase tracking-wider">Environment</div>
-                </div>
+            {/* SYSTEM INFO */}
+            <div className="backdrop-blur-xl bg-slate-800/40 border border-slate-700/60 rounded-2xl p-5 shadow-xl">
+              <h2 className="text-lg font-bold uppercase tracking-wider text-slate-300 mb-3">
+                Docker Environment
+              </h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Info label="Environment" value="Development" icon="🌐" />
+                <Info label="Version" value="v1.0.0" icon="📦" />
+                <Info
+                  label="Last Check"
+                  value={lastUpdate.toLocaleTimeString()}
+                  icon="⏱️"
+                />
               </div>
-              <div className="bg-white/2 border border-white/5 rounded-lg p-3 flex items-center gap-2 transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5">
-                <div className="text-lg w-9 h-9 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0">🔄</div>
-                <div className="flex flex-col gap-0.5">
-                  <div className="text-xs font-bold text-text-primary">5s</div>
-                  <div className="text-xs text-text-tertiary font-semibold uppercase tracking-wider">Auto-refresh</div>
+
+              <div className="mt-4 p-3 bg-slate-900/50 border border-slate-700/50 rounded-xl">
+                <div className="text-xs text-slate-400 mb-2">
+                  💡 Docker Learning Tip
                 </div>
-              </div>
-              <div className="bg-white/2 border border-white/5 rounded-lg p-3 flex items-center gap-2 transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5">
-                <div className="text-lg w-9 h-9 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0">📦</div>
-                <div className="flex flex-col gap-0.5">
-                  <div className="text-xs font-bold text-text-primary">v1.0.0</div>
-                  <div className="text-xs text-text-tertiary font-semibold uppercase tracking-wider">Version</div>
+                <div className="text-sm text-slate-300">
+                  Each service runs in its own container. Use{" "}
+                  <code className="bg-slate-800 px-1 rounded">
+                    docker-compose ps
+                  </code>{" "}
+                  to check container status.
                 </div>
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Architecture Visualization */}
-          <div className="glass-card p-6 flex flex-col gap-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-lg font-bold text-text-primary tracking-tight">Architecture Flow</h2>
+          {/* RIGHT COLUMN */}
+          <aside className="xl:col-span-4 backdrop-blur-xl bg-slate-800/40 border border-slate-700/60 rounded-2xl p-5 shadow-xl flex flex-col justify-center">
+            <h2 className="text-lg font-bold uppercase tracking-wider text-slate-300 mb-6">
+              Docker Container Stack
+            </h2>
+
+            <div className="flex flex-col items-center gap-4 text-center">
+              <Flow icon="⚛️" label="React Container" />
+              <Arrow />
+              <Flow icon="🚪" label="Gateway Container" />
+              <Arrow />
+              <div className="grid grid-cols-2 gap-3">
+                <Flow icon="🔐" label="Auth Container" />
+                <Flow icon="📊" label="Analytics Container" />
+              </div>
+              <Arrow />
+              <div className="grid grid-cols-2 gap-3">
+                <Flow icon="🗄️" label="PostgreSQL Container" />
+                <Flow icon="⚡" label="Redis Container" />
+              </div>
             </div>
 
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col items-center gap-2">
-                <div className="text-xs text-text-muted font-semibold uppercase tracking-wider">Client Layer</div>
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4 flex items-center gap-4 w-full max-w-xs transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[0_4px_12px_rgba(99,102,241,0.2)]">
-                  <div className="text-2xl w-13 h-13 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0">⚛️</div>
-                  <div className="flex flex-col gap-1">
-                    <div className="text-base font-bold text-text-primary">Frontend</div>
-                    <div className="text-xs text-text-tertiary font-medium">React SPA</div>
-                  </div>
+            <div className="mt-6 p-3 bg-slate-900/50 border border-slate-700/50 rounded-xl">
+              <div className="text-xs text-slate-400 mb-2">
+                🐳 Container Commands
+              </div>
+              <div className="text-xs text-slate-300 space-y-1">
+                <div>
+                  <code className="bg-slate-800 px-1 rounded">
+                    docker-compose up -d
+                  </code>{" "}
+                  - Start all
                 </div>
-              </div>
-
-              <div className="flex flex-col items-center gap-1">
-                <div className="w-0.5 h-6 bg-gradient-to-b from-accent-primary to-accent-secondary"></div>
-                <div className="text-accent-secondary text-sm">▼</div>
-              </div>
-
-              <div className="flex flex-col items-center gap-2">
-                <div className="text-xs text-text-muted font-semibold uppercase tracking-wider">Gateway Layer</div>
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4 flex items-center gap-4 w-full max-w-xs transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[0_4px_12px_rgba(139,92,246,0.2)]">
-                  <div className="text-2xl w-13 h-13 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0">🚪</div>
-                  <div className="flex flex-col gap-1">
-                    <div className="text-base font-bold text-text-primary">API Gateway</div>
-                    <div className="text-xs text-text-tertiary font-medium">Node.js</div>
-                  </div>
+                <div>
+                  <code className="bg-slate-800 px-1 rounded">
+                    docker-compose logs
+                  </code>{" "}
+                  - View logs
                 </div>
-              </div>
-
-              <div className="flex flex-col items-center gap-1">
-                <div className="w-0.5 h-6 bg-gradient-to-b from-accent-primary to-accent-secondary"></div>
-                <div className="text-accent-secondary text-sm">▼</div>
-              </div>
-
-              <div className="flex flex-col items-center gap-2">
-                <div className="text-xs text-text-muted font-semibold uppercase tracking-wider">Service Layer</div>
-                <div className="flex gap-2 w-full max-w-xs">
-                  <div className="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center gap-2 flex-1 transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5">
-                    <div className="text-lg w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center">🔐</div>
-                    <div className="text-xs font-semibold text-text-primary text-center">Auth</div>
-                  </div>
-                  <div className="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center gap-2 flex-1 transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5">
-                    <div className="text-lg w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center">📊</div>
-                    <div className="text-xs font-semibold text-text-primary text-center">Analytics</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col items-center gap-1">
-                <div className="w-0.5 h-6 bg-gradient-to-b from-accent-primary to-accent-secondary"></div>
-                <div className="text-accent-secondary text-sm">▼</div>
-              </div>
-
-              <div className="flex flex-col items-center gap-2">
-                <div className="text-xs text-text-muted font-semibold uppercase tracking-wider">Data Layer</div>
-                <div className="flex gap-2 w-full max-w-xs">
-                  <div className="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center gap-2 flex-1 transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5 hover:border-accent-tertiary/30">
-                    <div className="text-lg w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center">🗄️</div>
-                    <div className="text-xs font-semibold text-text-primary text-center">PostgreSQL</div>
-                  </div>
-                  <div className="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center gap-2 flex-1 transition-all duration-300 hover:bg-white/8 hover:-translate-y-0.5 hover:border-accent-tertiary/30">
-                    <div className="text-lg w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center">⚡</div>
-                    <div className="text-xs font-semibold text-text-primary text-center">Redis</div>
-                  </div>
+                <div>
+                  <code className="bg-slate-800 px-1 rounded">
+                    docker-compose down
+                  </code>{" "}
+                  - Stop all
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+          </aside>
+        </main>
       </div>
-    </div >
-  )
+    </div>
+  );
 }
 
-export default App
+/* ---------- small components ---------- */
+
+function Info({ icon, label, value }) {
+  return (
+    <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 flex items-center gap-3">
+      <div className="text-2xl">{icon}</div>
+      <div>
+        <div className="text-xs uppercase text-slate-400">{label}</div>
+        <div className="font-bold text-white">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function Flow({ icon, label }) {
+  return (
+    <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3">
+      <div className="text-3xl">{icon}</div>
+      <div className="text-sm font-semibold text-white mt-1">{label}</div>
+    </div>
+  );
+}
+
+function Arrow() {
+  return <div className="text-slate-500 text-xl">↓</div>;
+}
